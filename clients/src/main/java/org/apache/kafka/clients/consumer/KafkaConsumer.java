@@ -16,6 +16,28 @@
  */
 package org.apache.kafka.clients.consumer;
 
+import static org.apache.kafka.clients.consumer.internals.PartitionAssignorAdapter.getAssignorInstances;
+
+import java.net.InetSocketAddress;
+import java.time.Duration;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.ConcurrentModificationException;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Properties;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
+
 import org.apache.kafka.clients.ApiVersions;
 import org.apache.kafka.clients.ClientDnsLookup;
 import org.apache.kafka.clients.ClientUtils;
@@ -60,28 +82,6 @@ import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Timer;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
-
-import java.net.InetSocketAddress;
-import java.time.Duration;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.ConcurrentModificationException;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Properties;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.regex.Pattern;
-
-import static org.apache.kafka.clients.consumer.internals.PartitionAssignorAdapter.getAssignorInstances;
 
 /**
  * A client that consumes records from a Kafka cluster.
@@ -1214,6 +1214,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      * @throws KafkaException if the rebalance callback throws exception
      */
     private ConsumerRecords<K, V> poll(final Timer timer, final boolean includeMetadataInTimeout) {
+        //当前线程抢占该KafkaComsumer实例
         acquireAndEnsureOpen();
         try {
             this.kafkaConsumerMetrics.recordPollStart(timer.currentTimeMs());
@@ -1227,6 +1228,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
 
                 if (includeMetadataInTimeout) {
                     // try to update assignment metadata BUT do not need to block on the timer for join group
+                    //当enable.auto.commit=true时,这个方法里面会调用提交offset方法
                     updateAssignmentMetadataIfNeeded(timer, false);
                 } else {
                     while (!updateAssignmentMetadataIfNeeded(time.timer(Long.MAX_VALUE), true)) {
@@ -1272,6 +1274,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
         long pollTimeout = coordinator == null ? timer.remainingMs() :
                 Math.min(coordinator.timeToNextPoll(timer.currentTimeMs()), timer.remainingMs());
 
+        //从已经准备好还未消费的数据中构建消息记录
         // if data is available already, return it immediately
         final Map<TopicPartition, List<ConsumerRecord<K, V>>> records = fetcher.fetchedRecords();
         if (!records.isEmpty()) {

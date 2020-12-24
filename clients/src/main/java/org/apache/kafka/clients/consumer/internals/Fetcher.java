@@ -147,6 +147,8 @@ public class Fetcher<K, V> implements Closeable {
     private final ConsumerMetadata metadata;
     private final FetchManagerMetrics sensors;
     private final SubscriptionState subscriptions;
+    //从kafka broker获取成功后,会封住为CompletedFetch放入到completedFetches
+    //等待org.apache.kafka.clients.consumer.KafkaConsumer.poll(java.time.Duration)来消费
     private final ConcurrentLinkedQueue<CompletedFetch> completedFetches;
     private final BufferSupplier decompressionBufferSupplier = BufferSupplier.create();
     private final Deserializer<K> keyDeserializer;
@@ -1101,9 +1103,11 @@ public class Fetcher<K, V> implements Closeable {
 
     private List<TopicPartition> fetchablePartitions() {
         Set<TopicPartition> exclude = new HashSet<>();
+        //nextInLineFetch.partition的数据还没获取完,那么本次不进行该partition的消息获取操作
         if (nextInLineFetch != null && !nextInLineFetch.isConsumed) {
             exclude.add(nextInLineFetch.partition);
         }
+        //completedFetches里的数据也还是没有消费,那么也不进行该partition的操作
         for (CompletedFetch completedFetch : completedFetches) {
             exclude.add(completedFetch.partition);
         }
